@@ -1,0 +1,40 @@
+{
+  "goal": "Log into saucedemo.com with the username standard_user and password secret_sauce and extract the name and price of the black Backpack",
+  "steps": [
+    {
+      "tool": "navigate",
+      "args": { "url": "https://www.saucedemo.com" }
+    },
+    {
+      "tool": "wait_for",
+      "args": { "selector": "[data-test='username']", "state": "visible" }
+    },
+    {
+      "tool": "type",
+      "args": { "selector": "[data-test='username']", "text": "standard_user", "clear": true }
+    },
+    {
+      "tool": "type",
+      "args": { "selector": "[data-test='password']", "text": "secret_sauce", "clear": true }
+    },
+    {
+      "tool": "click",
+      "args": { "selector": "[data-test='login-button']" }
+    },
+    {
+      "tool": "wait_for",
+      "args": { "selector": ".inventory_list", "state": "visible" }
+    },
+    {
+      "tool": "extract_text",
+      "id": "backpack_name",
+      "args": { "selector": ".inventory_item:has-text(\"Backpack\") .inventory_item_name" }
+    },
+    {
+      "tool": "extract_text",
+      "id": "backpack_price",
+      "args": { "selector": ".inventory_item:has-text(\"Backpack\") .inventory_item_price" }
+    }
+  ],
+  "final_report": "Extracted backpack_name and backpack_price are stored in the step ids backpack_name and backpack_price"
+}

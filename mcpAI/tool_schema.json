@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActionPlan",
+  "type": "object",
+  "required": ["goal", "steps"],
+  "properties": {
+    "goal": { "type": "string" },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool", "args"],
+        "properties": {
+          "tool": {
+            "type": "string",
+            "enum": ["navigate", "click", "type", "wait_for", "extract_text"]
+          },
+          "args": { "type": "object" }
+        }
+      }
+    },
+    "final_report": { "type": "string" }
+  }
+}
