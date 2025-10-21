@@ -41,13 +41,14 @@ Closing browser...
 - We use integredated ide AI assistant to avoid fees from LLM api 
 - Install playright mcp server
     https://github.com/microsoft/playwright-mcp (there is a `Install Server VS Code`) button for ease of installation
-- `mcp.json` can be found in playwright MCP settings configuration JSON
 - Ensure playwright MCP server is runnning
 ```bash
 cd mcpAI
 ```
-In copilot agent mode, attach these context files
+In copilot (or any ide assistant) agent mode, attach these context files
     `mcpAI/llmInstructions.md && mcpAI/tool_schema.json && mcp.json`
+- `mcp.json` can be found in playwright MCP settings `Show Configuration (JSON)`
+
 then enter 
 "Log into saucedemo.com with the username standard_user and password secret_sauce and get me the name and price of a black Backpack output json to plan.json." 
  (json not able to be correctly copied directly from chat).
