@@ -84,7 +84,9 @@ uvicorn app:app --reload --host 127.0.0.1 --port 8000
 
 Example API call (once uvicorn is running)
 
+- In a new terminal
 ```bash
+source .venv/bin/activate
 
 curl -X POST http://127.0.0.1:8000/launch \
     -H "Content-Type: application/json" \
@@ -95,3 +97,4 @@ Expected output:
 ```
 {"goal":"Login to saucedemo and return the Backpack name and price","extracted":{"backpack_name":"Sauce Labs Backpack","backpack_price":"$29.99"}}
 ```
+Thank You!
