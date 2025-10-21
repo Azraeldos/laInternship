@@ -1,6 +1,6 @@
 # Quick start
 
-This repo has two runnable parts:
+This repository has two runnable parts:
 
 - core: a small script at `core/robot.py`
 - mcpAI: a FastAPI app and a plan-runner (`mcpAI/app.py`, `mcpAI/robotAI.py`, `mcpAI/plan.json`)
@@ -52,7 +52,7 @@ then enter
 "Log into saucedemo.com with the username standard_user and password secret_sauce and get me the name and price of a black Backpack output json to plan.json." 
  (json not able to be correctly copied directly from chat).
 
- then ```
+ then 
  ```python robotAI.py```
 
 Expected output:
