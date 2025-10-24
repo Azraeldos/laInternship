@@ -1,6 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import subprocess, sys
+from llmPlan import generate_plan  # NEW
+from pathlib import Path
+
 
 app = FastAPI(title="Tiny Runner API")
 
@@ -12,12 +15,17 @@ class Payload(BaseModel):
 
 @app.post("/launch")
 def launch(p: Payload):
-    cmd = [
-        sys.executable, "robotAI.py",               # existing runner script
-        "--instruction", p.instruction,
-        "--headless", "true" if p.headless else "false",
-        "--slow-mo", str(p.slow_mo),
-    ]
+    # 
+    # 1) Ask the LLM for a plan.json (writes mcpAI/plan.json)
+    try:
+        generate_plan(p.instruction)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Plan generation failed: {e}")
+
+    # 2) Run your existing runner (unchanged)
+    runner = Path(__file__).with_name("robotAI.py")
+    cmd = [sys.executable, str(runner)]
+    # 
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=p.timeout_sec
