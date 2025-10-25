@@ -1,16 +1,55 @@
-
 {
-	"goal": "Log into saucedemo.com with standard_user and extract the Backpack name and price",
-	"steps": [
-		{ "tool": "navigate", "args": { "url": "https://www.saucedemo.com" } },
-		{ "tool": "wait_for", "args": { "selector": "[data-test='username']", "state": "visible" } },
-		{ "tool": "type", "args": { "selector": "[data-test='username']", "text": "standard_user", "clear": true } },
-		{ "tool": "type", "args": { "selector": "[data-test='password']", "text": "secret_sauce", "clear": true } },
-		{ "tool": "click", "args": { "selector": "[data-test='login-button']" } },
-		{ "tool": "wait_for", "args": { "selector": ".inventory_list", "state": "visible" } },
-		{ "tool": "extract_text", "args": { "selector": ".inventory_item:has-text(\"Backpack\") .inventory_item_name" }, "id": "backpack_name" },
-		{ "tool": "extract_text", "args": { "selector": ".inventory_item:has-text(\"Backpack\") .inventory_item_price" }, "id": "backpack_price" }
-	],
-	"final_report": "{\"goal\":\"Login to saucedemo and return the Backpack name and price\",\"extracted\":{\"backpack_name\":\"{backpack_name}\",\"backpack_price\":\"{backpack_price}\"}}"
+  "goal": "Login to https://www.saucedemo.com and return the Bike Light name and price",
+  "steps": [
+    {
+      "tool": "navigate",
+      "args": {
+        "url": "https://www.saucedemo.com"
+      }
+    },
+    {
+      "tool": "type",
+      "args": {
+        "selector": "[data-test='username']",
+        "text": "standard_user",
+        "clear": true
+      }
+    },
+    {
+      "tool": "type",
+      "args": {
+        "selector": "[data-test='password']",
+        "text": "secret_sauce",
+        "clear": true
+      }
+    },
+    {
+      "tool": "click",
+      "args": {
+        "selector": "[data-test='login-button']"
+      }
+    },
+    {
+      "tool": "wait_for",
+      "args": {
+        "selector": ".inventory_list",
+        "state": "visible"
+      }
+    },
+    {
+      "tool": "extract_text",
+      "args": {
+        "selector": ".inventory_item:has-text(\"Bike Light\") .inventory_item_name",
+        "id": "bike_light_name"
+      }
+    },
+    {
+      "tool": "extract_text",
+      "args": {
+        "selector": ".inventory_item:has-text(\"Bike Light\") .inventory_item_price",
+        "id": "bike_light_price"
+      }
+    }
+  ],
+  "final_report": "{\"goal\":\"Login to https://www.saucedemo.com and return the Bike Light name and price\",\"extracted\":{\"bike_light_name\":\"{bike_light_name}\",\"bike_light_price\":\"{bike_light_price}\"}}"
 }
-

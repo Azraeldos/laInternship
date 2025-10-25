@@ -1,78 +1,131 @@
-# mcpAI/llm_plan.py
-# Purpose: Call OpenAI to produce a strict JSON action plan (plan.json) using your existing
-# schema (tool_schema.json) and instructions (llmInstructions.md).
+# Purpose: Produce a strict JSON Playwright plan (plan.json) with TRUE MCP integration (SSE),
+# falling back to a Playwright DOM summary if MCP is unavailable.
 
-import json
+import asyncio, json, os, re
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
-import os
-from openai import OpenAI
-import requests
 from jsonschema import validate as jsonschema_validate, ValidationError
+from openai import OpenAI
+from playwright.sync_api import sync_playwright
+# Official Python MCP client (SSE transport is ASYNC)
+from mcp.client.sse import sse_client
+from mcp.client.session import ClientSession
 
+# Paths & constants
 ROOT = Path(__file__).resolve().parent
 INSTRUCTIONS_PATH = ROOT / "llmInstructions.md"
 SCHEMA_PATH = ROOT / "toolSchema.json"
 PLAN_PATH = ROOT / "plan.json"
+DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MCP_SSE_URL = "http://127.0.0.1:4375"
+DEFAULT_MAX_NODES = 120
 
+# Basic file utilities
 
-def fetch_mcp_snapshot(mcp_url="http://127.0.0.1:4173/snapshot", session_id=None):
-    """Fetch a JSON snapshot from a running Playwright MCP server.
+# Read a UTF-8 text file path into a single string
+def _read_text(p: Path) -> str:
+    return p.read_text(encoding="utf-8")
 
-    The MCP server URL can be customized via the MCP_SNAPSHOT_URL env var.
-    Return a dict (parsed JSON) or raise on network errors.
-    """
-    params = {}
-    if session_id:
-        params["session"] = session_id
-    r = requests.get(mcp_url, params=params, timeout=5)
-    r.raise_for_status()
-    return r.json()
+# Read a UTF-8 JSON file path and parse it
+def _read_json(p: Path) -> Any:
+    return json.loads(p.read_text(encoding="utf-8"))
 
-#NEW
-def _summarize_snapshot(snapshot, max_nodes=100):
-    """Return a shallow, compact summary of the MCP snapshot.
+# MCP (SSE) INTEGRATION
+# Connect to a Playwright MCP server via SSE, list tools, pick a snapshot-like tool, call it, and return JSON.
+#     Returns:
+#         A dict-like snapshot payload or {"error": "..."} on failure.
+async def _grab_snapshot_from_mcp_async(url: str) -> Dict[str, Any]:
+    async with sse_client(url=url) as (read, write):
+        async with ClientSession(read, write) as session:
+            # handshake
+            await session.initialize()
+            # discover tools
+            tools = await session.list_tools()
+            tool_names = [t.name for t in tools.tools]
+            # pick a "snapshot"-like tool
+            preferred = ("snapshot", "pageSnapshot", "accessibilitySnapshot", "getPageSnapshot")
+            chosen = next((t for t in preferred if t in tool_names), None)
+            if not chosen:
+                matches = [t for t in tool_names if "snapshot" in t.lower()]
+                if not matches:
+                    return {"error": "no snapshot-like tool found on MCP server"}
+                chosen = matches[0]
+            # call the tool
+            result = await session.call_tool(chosen, arguments={})
+            # parse the response content for JSON
+            # (result.content is a list of content parts)
+            for part in result.content:
+                # application/json
+                if getattr(part, "type", "") == "application/json":
+                    data = getattr(part, "data", None)
+                    if isinstance(data, dict):
+                        return data
+                    if isinstance(data, list):
+                        return {"nodes": data}
+                # text/plain that might contain JSON
+                if getattr(part, "type", "") == "text/plain":
+                    text = getattr(part, "text", "")
+                    if isinstance(text, str) and text.strip():
+                        try:
+                            parsed = json.loads(text)
+                            if isinstance(parsed, dict):
+                                return parsed
+                            if isinstance(parsed, list):
+                                return {"nodes": parsed}
+                        except Exception:
+                            # not JSON; keep scanning
+                            pass
+            return {"error": "snapshot tool returned no usable JSON"}
+# Synchronous wrapper around the async SSE client call (keeps surface unchanged)
+def _get_mcp_snapshot_sync(url: str) -> Dict[str, Any]:
+    try:
+        return asyncio.run(_grab_snapshot_from_mcp_async(url))
+    except Exception as e:
+        return {"error": f"mcp sse failed: {e}"}
 
-    We keep this simple: collect up to `max_nodes` nodes that include a role/name and
-    any common selector-like attributes (id, class, data-test*). The summary is
-    intentionally shallow to avoid huge prompts.
-    """
+# Compact the MCP snapshot into a shallow list of nodes with role/name/attrs.
+# This keeps the LLM prompt small but useful.
+#     Returns:
+#         {"nodes": [...]} or {"error": "..."}.
+def _summarize_snapshot(snapshot: Any, max_nodes: int = DEFAULT_MAX_NODES) -> Dict[str, Any]:
     if not snapshot:
         return {"error": "no snapshot"}
-
-    nodes = []
-
-    def collect(node):
+    nodes: List[Dict[str, Any]] = []
+    def collect(node: Any) -> None:
         if not isinstance(node, dict) or len(nodes) >= max_nodes:
             return
-        entry = {}
-        for k in ("role", "name"):
-            v = node.get(k)
-            if v:
-                entry[k] = v
-        attrs = {}
-        # shallow attribute containers
+        entry: Dict[str, Any] = {}
+        # Common a11y fields
+        role = node.get("role")
+        name = node.get("name")
+        if role:
+            entry["role"] = role
+        if name:
+            entry["name"] = name
+        # Useful attrs for selectors / targeting
+        attrs: Dict[str, Any] = {}
         if isinstance(node.get("attributes"), dict):
             for key, val in node["attributes"].items():
+                # keep data-* for targeting, plus id/class if present
                 if key.startswith("data-") and val:
                     attrs[key] = val
-        # common top-level attrs
-        for key in ("id", "class"):
-            v = node.get(key)
+        for k in ("id", "class"):
+            v = node.get(k)
             if v:
-                attrs[key] = v
+                attrs[k] = v
         if attrs:
             entry["attrs"] = attrs
         if entry:
             nodes.append(entry)
-
-        # shallow children
+        # shallow traversal across common child containers
         for child_key in ("children", "nodes"):
-            for child in node.get(child_key, []) or []:
-                collect(child)
-                if len(nodes) >= max_nodes:
-                    return
-
+            children = node.get(child_key) or []
+            if isinstance(children, list):
+                for child in children:
+                    collect(child)
+                    if len(nodes) >= max_nodes:
+                        return
     if isinstance(snapshot, dict):
         collect(snapshot)
     elif isinstance(snapshot, list):
@@ -80,96 +133,130 @@ def _summarize_snapshot(snapshot, max_nodes=100):
             collect(item)
             if len(nodes) >= max_nodes:
                 break
-
     return {"nodes": nodes}
-#
+
+# Playwright fallback summary
+# Extract the first URL in the goal; otherwise use START_URL from the environment
+def _pick_url_from_goal_or_env(goal: str) -> Optional[str]:
+    m = re.search(r"https?://\S+", goal)
+    if m:
+        return m.group(0).rstrip(".,)")
+    return os.getenv("START_URL")
+
+# Fallback if MCP server isn’t available
+# If MCP snapshot is unavailable, open a URL inferred from the goal (or START_URL)
+# and collect a compact DOM summary, so the LLM still has some structured data about the page to reason from.
+def _playwright_fallback_snapshot(goal: str, max_nodes: int = DEFAULT_MAX_NODES) -> Dict[str, Any]:
+    url = _pick_url_from_goal_or_env(goal)
+    if not url:
+        return {"error": "no URL found (include a URL in the goal or set START_URL)"}
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, timeout=20000, wait_until="domcontentloaded")
+            summary = page.evaluate(
+                """(limit) => {
+                  const out = [];
+                  const els = Array.from(document.querySelectorAll('*'));
+                  for (const el of els) {
+                    const entry = {};
+                    const role = el.getAttribute('role');
+                    const id = el.id || null;
+                    const cls = el.className || null;
+                    const attrs = {};
+                    for (const a of el.getAttributeNames()) {
+                      if (a.startsWith('data-')) attrs[a] = el.getAttribute(a);
+                    }
+                    const text = (el.textContent || '').trim();
+                    const name = text ? text.slice(0, 80) : '';
+
+                    if (role) entry.role = role;
+                    if (name) entry.name = name;
+
+                    const bag = {};
+                    if (id) bag.id = id;
+                    if (cls) bag.class = cls;
+                    for (const [k,v] of Object.entries(attrs)) bag[k] = v;
+                    if (Object.keys(bag).length) entry.attrs = bag;
+
+                    if (Object.keys(entry).length) out.push(entry);
+                    if (out.length >= limit) break;
+                  }
+                  return { url: location.href, nodes: out };
+                }""",
+                max_nodes,
+            )
+            browser.close()
+            return summary
+    except Exception as e:
+        return {"error": f"playwright fallback failed: {e}"}
+
+# Planner (LLM)
+#   Ask the LLM for a JSON plan adhering to toolSchema.json + llmInstructions.md.
+#     Flow:
+#       1) Try TRUE MCP snapshot via SSE.
+#       2) If that fails, use Playwright fallback summary.
+#       3) Validate and write plan.json.
+#     Returns:
+#         The validated plan dictionary.
+#     Raises:
+#         RuntimeError if OPENAI_API_KEY is missing.
+#         ValueError if JSON Schema validation fails.
 def generate_plan(goal: str) -> dict:
-    """
-    Ask the LLM for a JSON plan that adheres to the schema and your instructions.
-    Returns the parsed dict and writes it to plan.json.
-    """
-    
-    load_dotenv()  # loads OPENAI_API_KEY, OPENAI_MODEL
+    load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY missing. Set it in .env")
-
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-    # Read constraints you already have in the repo
-    llm_instructions = INSTRUCTIONS_PATH.read_text(encoding="utf-8")
-    json_schema = SCHEMA_PATH.read_text(encoding="utf-8")
-
-    client = OpenAI(api_key=api_key)
-
-    # We ask for pure JSON via response_format, and we hard-pin the contract in the prompt.
-    system = (
+        raise RuntimeError("OPENAI_API_KEY missing. Set it in your environment or .env")
+    model = os.getenv("OPENAI_MODEL", DEFAULT_MODEL)
+    mcp_url = os.getenv("MCP_SSE_URL", DEFAULT_MCP_SSE_URL)
+    llm_instructions = _read_text(INSTRUCTIONS_PATH)
+    schema_obj = _read_json(SCHEMA_PATH)
+    # Try MCP snapshot first; fall back to Playwright DOM summary
+    source_tag = "MCP_SNAPSHOT_SUMMARY"
+    snapshot = _get_mcp_snapshot_sync(mcp_url)
+    if "error" in snapshot:
+        source_tag = "PLAYWRIGHT_FALLBACK_SUMMARY"
+        snapshot_block = _playwright_fallback_snapshot(goal)
+    else:
+        snapshot_block = _summarize_snapshot(snapshot)
+    # LLM call with JSON-only response
+    system_prompt = (
         "You are a planning engine that outputs a Playwright action plan for a Python runner.\n"
         "Output ONLY a single JSON object that validates against the provided JSON Schema.\n"
         "Do not include markdown, code fences, or explanations."
     )
-
-    user = f"""\
-
-Goal:
-{goal}
-
-Instructions (verbatim from llmInstructions.md):
-{llm_instructions}
-
-JSON Schema (verbatim from tool_schema.json):
-{json_schema}
-
-Output: A SINGLE JSON object that strictly follows the schema and the instruction rules.
-"""
-# NEW
-    # Try to fetch a live MCP snapshot and append a concise summary to the prompt.
-    mcp_url = os.getenv("MCP_SNAPSHOT_URL", "http://127.0.0.1:4173/snapshot")
-    try:
-        raw_snapshot = fetch_mcp_snapshot(mcp_url=mcp_url)
-    except Exception as e:
-        raw_snapshot = {"error": f"Could not fetch MCP snapshot: {e}"}
-
-    try:
-        snapshot_summary = _summarize_snapshot(raw_snapshot)
-        user += "\n\nMCP_SNAPSHOT_SUMMARY:\n" + json.dumps(snapshot_summary, indent=2)
-    except Exception:
-        user += "\n\nMCP_SNAPSHOT_SUMMARY: {\"error\": \"snapshot processing failed\"}"
-#
-    # New-style responses with JSON enforced
+    user_payload = {
+        "goal": goal,
+        "instructions_md": llm_instructions,
+        "json_schema": schema_obj,
+        source_tag: snapshot_block,
+    }
+    client = OpenAI(api_key=api_key)
     resp = client.chat.completions.create(
         model=model,
         temperature=0,
         response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(user_payload, indent=2)},
         ],
     )
-
     raw = resp.choices[0].message.content
-    plan = json.loads(raw)  # enforce parse; fail fast if not JSON
-
-    # Minimal sanity check for required keys
-    if "goal" not in plan or "steps" not in plan:
-        raise ValueError("Plan missing required keys ('goal', 'steps').")
-
-    # Validate plan against the provided JSON schema (fail fast if invalid)
+    plan = json.loads(raw)  # fail fast if not JSON
+    # Validate against schema
     try:
-        schema_obj = json.loads(json_schema)
         jsonschema_validate(instance=plan, schema=schema_obj)
     except ValidationError as ve:
         raise ValueError(f"Plan failed JSON Schema validation: {ve}")
-    except Exception as e:
-        # If schema can't be parsed or other issue, raise to avoid writing a bad plan
-        raise RuntimeError(f"Schema validation error: {e}")
-
+    # Write plan.json
     PLAN_PATH.write_text(json.dumps(plan, indent=2), encoding="utf-8")
     return plan
 
 if __name__ == "__main__":
-    # small manual test
-    print("Writing plan.json for a demo goal...")
-    demo_goal = "Login to saucedemo and return the Backpack name and price"
+    demo_goal = os.getenv(
+        "GOAL",
+        "Login to https://www.saucedemo.com and return the Backpack name and price",
+    )
     out = generate_plan(demo_goal)
     print(json.dumps(out, indent=2))

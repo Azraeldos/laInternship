@@ -7,6 +7,12 @@ This repository has two runnable parts:
 
 Minimal setup (one-time, from repo root)
 
+Copy the example below into a new `.env` file at the project root:
+```bash
+   OPENAI_API_KEY=your_openai_api_key_here
+   OPENAI_MODEL=gpt-4o-mini
+```
+
 ```bash
 # create and activate a venv
 python3 -m venv .venv
@@ -15,6 +21,7 @@ source .venv/bin/activate
 # install runtime + dev deps
 pip install --upgrade pip
 pip install -r requirements.txt
+sudo apt  install jq
 
 # install Playwright browsers
 python -m playwright install
@@ -37,64 +44,67 @@ Closing browser...
 2. Optional Challenge 1: The AI Brain with MCP (Advanced Skills)
 
 **Note**  
-- Plan.json has default output for immeditate testing please clear plan.json if you do not wish to use the default plan.
-- We use integredated ide AI assistant to avoid fees from LLM api 
+- Plan.json has default output for immeditate testing.
 - Install playright mcp server
     https://github.com/microsoft/playwright-mcp (there is a `Install Server VS Code`) button for ease of installation
-- Ensure playwright MCP server is runnning
+
+In terminal
 ```bash
+source .venv/bin/activate
 cd mcpAI
+uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
-In copilot (or any ide assistant) agent mode, attach these context files
-    `mcpAI/llmInstructions.md && mcpAI/tool_schema.json && mcp.json`
-- `mcp.json` can be found in playwright MCP settings `Show Configuration (JSON)`
 
-then enter 
-"Log into saucedemo.com with the username standard_user and password secret_sauce and get me the name and price of a black Backpack output json to plan.json." 
- (json not able to be correctly copied directly from chat).
+In another terminal 
+```bash
+npx @playwright/mcp@latest --port 4375
+- Ensure playwright MCP server is runnning
+```
 
- then 
- ```python robotAI.py```
+In another terminal enter
+```bash
+ curl -s -X POST http://127.0.0.1:8000/launch   -H "Content-Type: application/json"   -d '{"instruction":"Login to https://www.saucedemo.com and return the Bike Light name and price"}' | jq . 
+ ```
 
 Expected output:
 ```
-Goal: Log into saucedemo.com with standard_user and extract the Backpack name and price
-Step 1: navigate {'url': 'https://www.saucedemo.com'}
-Step 2: wait_for {'selector': "[data-test='username']", 'state': 'visible'}
-Step 3: type {'selector': "[data-test='username']", 'text': 'standard_user', 'clear': True}
-Step 4: type {'selector': "[data-test='password']", 'text': 'secret_sauce', 'clear': True}
-Step 5: click {'selector': "[data-test='login-button']"}
-Step 6: wait_for {'selector': '.inventory_list', 'state': 'visible'}
-Step 7: extract_text {'selector': '.inventory_item:has-text("Backpack") .inventory_item_name'}
-Step 8: extract_text {'selector': '.inventory_item:has-text("Backpack") .inventory_item_price'}
-
---- Extracted Values ---
-backpack_name: Sauce Labs Backpack
-backpack_price: $29.99
-Error: '"goal"'
-Closing browser...
+{
+  "goal": "Login to https://www.saucedemo.com and return the Bike Light name and price",
+  "extracted": {
+    "bike_light_name": "Sauce Labs Bike Light",
+    "bike_light_price": "$9.99"
+  }
+}
 ```
 3. Optional Challenge 2: Making It Shareable (Deployment Skills)
 
 ```bash
+source .venv/bin/activate
 cd mcpAI
-
 uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
-
-Example API call (once uvicorn is running)
+- In a new terminal
+```bash
+npx @playwright/mcp@latest --port 4375
+```
+- Ensure playwright MCP server is runnning
 
 - In a new terminal
 ```bash
-source .venv/bin/activate
+curl -s -X POST http://127.0.0.1:8000/launch \
+  -H "Content-Type: application/json" \
+  -d '{"instruction":"Login to https://www.saucedemo.com and return the Backpack name and price"}' \
+| jq .
+```
 
-curl -X POST http://127.0.0.1:8000/launch \
-    -H "Content-Type: application/json" \
-    -d  '{"instruction":"Login to saucedemo and return the Backpack name and price","headless":true}'
-```
-```
 Expected output:
 ```
-{"goal":"Login to saucedemo and return the Backpack name and price","extracted":{"backpack_name":"Sauce Labs Backpack","backpack_price":"$29.99"}}
+{
+  "goal": "Login to https://www.saucedemo.com and return the Backpack name and price",
+  "extracted": {
+    "backpack_name": "Sauce Labs Backpack",
+    "backpack_price": "$29.99"
+  }
+}
 ```
 Thank You!

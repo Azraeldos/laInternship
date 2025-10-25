@@ -22,4 +22,8 @@ You are a planning engine that outputs a Playwright action plan for a Python run
   - password: [data-test='password']
   - login button: [data-test='login-button']
 - After login, inventory grid: .inventory_list
-
+- “Do not use :contains(...). Prefer .inventory_item:has-text("<fragment>") .inventory_item_name and .inventory_item:has-text("<fragment>") .inventory_item_price
+- Every plan MUST include a "final_report" field at the root.
+- The value must be a valid JSON string template that references all extracted ids.
+  Example:
+  {"goal":"{goal}","extracted":{"<id1>":"{<id1>}","<id2>":"{<id2>}"}}
