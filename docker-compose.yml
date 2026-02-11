@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - HEADLESS_MODE=true
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - API_KEYS=${API_KEYS:-}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-10}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+      - ALLOWED_URL_PATTERNS=${ALLOWED_URL_PATTERNS:-}
+      - MCP_SSE_URL=${MCP_SSE_URL:-http://127.0.0.1:4375}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./mcpAI:/app/mcpAI
+      - ./core:/app/core
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: MCP server (if running in container)
+  # Uncomment and configure if needed
+  # mcp-server:
+  #   image: node:18-slim
+  #   command: npx @playwright/mcp@latest --port 4375
+  #   ports:
+  #     - "4375:4375"
+  #   volumes:
+  #     - ./mcpAI:/app/mcpAI
+  #   restart: unless-stopped
