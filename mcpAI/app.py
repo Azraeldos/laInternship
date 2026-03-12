@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Tiny Runner API",
+    title="AI Web Automation",
     description="AI-powered web automation API using Playwright",
     version="1.0.0",
 )

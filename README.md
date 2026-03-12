@@ -1,4 +1,5 @@
-# Quick start
+# Quick Start
+# AI Web Automation
 
 This repository has two runnable parts:
 
